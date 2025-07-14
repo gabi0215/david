@@ -1,0 +1,6 @@
+repos:
+  - repo: https://github.com/gabi0215/ai-codyssey.git
+    rev: 24.3.0  # 또는 최신 버전 확인 후 설정
+    hooks:
+      - id: black
+        language_version: python3
