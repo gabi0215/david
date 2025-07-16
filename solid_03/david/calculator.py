@@ -13,13 +13,13 @@ def divide(a,b):
 # 계산기 함수입니다.
 def calculator():
     try:
-        a = float(input("Enter first number: "))
+        a = int(input("Enter first number: "))
     except ValueError:
         print("Invalid input for number.")
         return
     
     try:
-        b = float(input("Enter Second number: "))
+        b = int(input("Enter Second number: "))
     except ValueError:
         print("Invalid input for number")
         return
@@ -48,7 +48,7 @@ def calculator():
 
 # 보너스 과제 함수입니다.
 def expression_calculator():
-    expression = input("Enter expression (ex: 3 + 3): ")
+    expression = input("Enter expression: ")
     parts = expression.split() # 공백 포함이라는 조건이 있어 strip은 사용하지 않고 split하였습니다.
 
     # 공백 2개가 없으면 예외 처리
@@ -61,8 +61,8 @@ def expression_calculator():
 
     # 일반 계산기와 동일하게 정수가 아닌 str이 들어오면 메시지 출력 후 종료.
     try:
-        a = float(a_str)
-        b = float(b_str)
+        a = int(a_str)
+        b = int(b_str)
     except ValueError:
         print("Invalid number.")
         return
@@ -85,72 +85,16 @@ def expression_calculator():
     else:
         print("Result:", result)
 
-# practic_06을 위해 우선순위를 결정하여 계산하는 함수를 구현했습니다.
-def priority_calculator():
-    expression = input("Enter expression (ex: 3 + 3 * 5 - 2): ")
-    tokens = expression.split()
-
-    # 입력이 짝수인지 확인합니다.
-    if len(tokens) % 2 == 0:
-        print("Invalid input")
-        return
-
-    # 0부터 2칸씩 이동하면서 i값을 가져오고 숫자 부분만 골라서 float로 변환합니다.
-    try:
-        for i in range(0, len(tokens), 2):
-            tokens[i] = float(tokens[i])
-    except ValueError:
-        print("Invalid input.")
-        return
-    
-    i = 1 # 인덱스 1부터 시작(tokens[1]은 연산자 위치)
-    while i < len(tokens) -1: # 범위 초과 방지
-        op = tokens[i]
-        if op == "*" or op == "/":
-            a = tokens[i - 1]
-            b = tokens[i + 1]
-            result = multiply(a,b) if op == "*" else divide(a, b)
-            if isinstance(result, str):
-                print(result)
-                return
-            tokens[i - 1:i + 2] = [result] # 계산된 3개를 하나의 값으로 리스트에서 치환.
-            i = 1 # 연산 처리가 끝났고 리스트가 바뀌었고, 다시 처음부터 검사
-        else: # 연산자가 아니라면 다음 연산자로 이동
-            i += 2
-
-    result = tokens[0] # 첫 숫자를 시작값으로 저장
-    i = 1
-    while i < len(tokens) - 1: # 연산자와와 오르쪽 숫자 처리용 반복
-        op = tokens[i] # op 연산자, b: 다음 숫자
-        b = tokens[i + 1]
-        # 누적 계산
-        if op == "+":
-            result = add(result, b)
-        elif op == "-":
-            result = subtract(result, b)
-        # 다음 연산자와 숫자 위치로 이동
-        i += 2
-
-    print("Result:", result)
-
-# 보너스 과제에 괄호까지 처리하는 추가 함수구현해보기
-
 # 코드 재사용성을 위해서 모드 자체를 선택할 수 있도록 구현했습니다.
 if __name__ == "__main__":
     print("계산기 모드를 선택해주세요!")
-    print("1. 기본 계산기 (숫자 2개만 입력하여 연산합니다.)")
-    print("2. 수식 계산기 (a + b 형식)")
-    print("3. 우선순위 수식 계산기(공백 기준, *, / > +, -)")
-    # print("4. 괄호 포함 우선순위 계산기")
-    mode = input("Enter mode (1 ~ 3): ")
+    print("1. 일반 계산기 (숫자 2개만 입력하여 연산합니다.)")
+    print("2. 문자열 수식 계산기 (숫자 1 또는 2)")
+    mode = input("Enter mode (1 or 2): ")
 
     if mode == "1":
         calculator()
     elif mode == "2":
         expression_calculator()
-    elif mode == "3":
-        priority_calculator()
-    # elif mode == "4":
-    #     priority_calculator_bonus()
     else:
-         print("Invalid mode.")
+         print("Invalid mode selection.")
