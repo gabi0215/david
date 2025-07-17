@@ -90,11 +90,15 @@ def priority_calculator():
     expression = input("Enter expression (ex: 3 + 3 * 5 - 2): ")
     tokens = expression.split()
 
-    # 입력이 짝수인지 확인합니다.
+    # 입력이 공백이라면 탈출.
     if len(tokens) % 2 == 0:
         print("Invalid input")
         return
-
+    # 입력 시 연산자가 없이 숫자만 입력되었을 예외처리 로직
+    if not any(op in tokens for op in ["+", "-", "*", "/"]):
+        print("연산자가 하나도 없습니다.")
+        return
+    
     # 0부터 2칸씩 이동하면서 i값을 가져오고 숫자 부분만 골라서 float로 변환합니다.
     try:
         for i in range(0, len(tokens), 2):
