@@ -26,7 +26,7 @@ def index():
         input_text = request.form.get("input_text", "").strip()
         lang = request.form.get("lang", "ko")
 
-        # 입력 검증
+        # 입력 검증 보너스 구현부분
         if not input_text:
             error = "텍스트를 입력해주세요!!"
         elif lang not in VALID_LANGS:
