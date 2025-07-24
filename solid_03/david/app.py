@@ -6,6 +6,7 @@ import base64 # 바이너리 데이터를 텍스트로 변환(image,오디오 �
 import io
 import datetime
 import traceback
+import re
 
 app = Flask(__name__)
 
@@ -31,6 +32,8 @@ def index():
             error = "텍스트를 입력해주세요!!"
         elif lang not in VALID_LANGS:
             error = f"지원하지 않는 언어입니다: {lang}"
+        elif lang == 'ko' and re.search(r'[a-zA-Z]', input_text):
+            error = "한국어 옵션입니다. 한글로 입력해주세요!"
         else:
             try:
                 tts = gTTS(text=input_text, lang=lang)
