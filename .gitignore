@@ -206,5 +206,6 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+
 # 가상환경 (사용자 지정 이름)
 require/
