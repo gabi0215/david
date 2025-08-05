@@ -74,4 +74,52 @@ requirements.txt 파일은 Python 환경 설정을 공유하기 위한 하드웨
 
 가상환경을 코드와 함께 관리하면 재설정이 필요 없는 효율적인 개발이 가능합니다.
 
+# 🍽️ 메뉴 화면 추가 프로젝트 (GitHub 협업 과제)
 
+이 프로젝트는 GitHub 협업 실습의 일환으로, 웹 페이지에 메뉴 화면을 추가하고 GitHub의 이슈, 브랜치, PR(Pull Request) 관리 기능을 실습하는 데 목적이 있습니다.
+
+## 📁 프로젝트 구조
+
+common_solid_01/    
+├── app.py # Flask 애플리케이션 진입점  
+├── templates/  
+└── menu.html # 메뉴 페이지 (아메리카노, 라떼, 녹차 버튼 포함)
+
+
+## 🚀 주요 기능
+
+- `/menu` 라우트 추가 (Flask 기반)
+- `menu.html`을 통해 3가지 음료 버튼 표시
+- Git CLI를 활용한 브랜치 생성, 커밋, PR 작성 실습
+- 협업 기능: Milestone, Assignee, Issue 관리
+
+## 🛠️ 사용 방법
+
+1. 저장소 클론:
+    ```bash
+    git clone https://github.com/<사용자명>/<저장소명>.git
+    cd <저장소명>
+    ```
+
+2. Flask 실행:
+    ```bash
+    python app.py
+    ```
+
+3. 브라우저에서 `http://127.0.0.1:5000/menu` 접속
+
+## ✅ 실습 흐름 요약
+
+- Collaborator 등록 → Milestone/Issue 작성  
+- `add-menu` 브랜치에서 기능 구현 및 커밋  
+- PR 생성, 의견 반영 및 수정 → 병합  
+- 이슈를 커밋 번호와 함께 종료하며 마무리
+
+## ✍️ 작성자
+
+- 이름: 이승갑
+- 과제명: GitHub 협업 환경 구성 및 기능 구현 실습
+
+## 프로젝트 실행 시!
+
+- requiremnet.txt로 가상환경 세팅 후 실행해주세요.
