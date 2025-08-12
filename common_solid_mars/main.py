@@ -25,9 +25,11 @@ from typing import Any, Iterable
 LOG_ENV = "LOG_FILE"
 RESULT_ENV = "RESULT"
 
+# 위험 키워드 정의
+RISK_KEYWORDS = ("폭발", "누출", "고온", "oxygen", "Oxygen")
+
 def require_env() -> tuple[Path, Path]:
-    '''
-    Args: 이 함수는 환경 변수의 유효성을 검사하고 경로를 반환합니다.
+    '''이 함수는 환경 변수의 유효성을 검사하고 경로를 반환합니다.
     '''
     log_file = os.getenv(LOG_ENV)
     result_file = os.getenv(RESULT_ENV)
@@ -107,7 +109,7 @@ def convert_list_to_dict(logs: list[dict[str, Any]]) -> dict[int, dict[str, Any]
     '''
     return {i: log for i, log in enumerate(logs)}
 
-def save_to_json(data: dict[int, dict[str, Any]], result_path: Path) -> Path:
+def save_to_json(data: dict[int, dict[str, Any]] | list[dict[str, Any]], result_path: Path, *, default_stem: str = "misstion_computer_main",) -> Path:
     '''
     - JSON 저장(폴더 자동 생성 및 예외 처리 포함)
     - 결과물을 timestamp 기준으로 덮어쓰기 방지하는 함수입니다.
@@ -115,25 +117,27 @@ def save_to_json(data: dict[int, dict[str, Any]], result_path: Path) -> Path:
     - 파일 생성 중 오류 발생하면 메세지 출력 및 예외
     '''
     # 현재 시간을 기반 파일 생성
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    p = Path(result_path)
+    # 확장자가 json이라면 파일로 간주, 아니면 폴더로 간주
+    if p.suffix.lower() == ".json":
+        base = p.with_suffix(".json")
+        base.parent.mkdir(parents=True, exits_ok=True)
+        out = base.with_name(f"{base.stem}_{ts}{base.suffix}")
 
-    base = result_path.with_suffix(".json")
-    out = base.with_name(f"{base.stem}_timestamp{base.suffix}")
-    
+    else:
+        p.mkdir(parents=True, exist_ok=True)
+        out = p / f"{default_stem}_{ts}.json"
     try:
-        # 폴더 자동 생성
-        out.parent.mkdir(parents=True, exist_ok=True)
-        # 파일 쓰기
-        with out.open("w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        out.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     except OSError as e:
         raise OSError(f"결과물 저장 실패: {out} (사유: {e})") from e
-    
     return out
-def log_data_analysis(s: Any) -> datetime | None:
+
+# 사고 분석 보고서
+def parse_ts_safe(s: Any) -> datetime | None:
     '''
-    Args:
-    문자열 datetime 으로 안전 파싱(형식이 다르면 None)
+    문자열을 datatime으로 안전 파싱(형식 다르면 None).
     '''
     if isinstance(s, str):
         try:
@@ -153,9 +157,135 @@ def generate_markdown_report(logs: list[dict[str, Any]], out_path: Path = Path("
     '''Args:
     log data를 요약 정리하여 log_analysis.md(UTF-8)로 저장합니다.
     '''
-    totall = len(logs)
+
+    # 타임 레인지
+    total = len(logs)
     times: list[datetime] = []
+    for row in logs:
+        ts = parse_ts_safe(row.get("timestamp"))
+        if ts:
+            times.append(ts)
+    start = min(times).strftime("%Y-%m-%d %H:%M:%S") if times else "N/A"
+    end = max(times).strftime("%Y-%m-%d %H:%M:%S") if times else "N/A"
+
+    # 레벨 분포
+    level_counts: Counter[str] = Counter()
+    for row in logs:
+        level = row.get("level")
+        if isinstance(level, str) and level:
+            level_counts[level] += 1
+
+    # 위험 키워드 카운트(본문 전체 스캔, 대소문자 무시)
+    risk_counter: Counter[str] = Counter()
+    joined_fields: list[str] = []
+    for row in logs:
+        parts = [str(v) for v in row.values() if isinstance(v, (str, int, float))]
+        blob = " ".join(parts)
+        joined_fields.append(blob)
+        lower = blob.lower()
+        for kw in RISK_KEYWORDS:
+            if kw.lower() in lower:
+                risk_counter[kw] += 1
     
+    # 최근 건수 설정 가능(샘플로 5개 지정)
+    recent = sort_log_datetime(logs)[:5]
+
+    # 간단 가설: 위험 키워드가 다수/연쇄 나오면 패턴 나열
+    hypotheses: list[str] = []
+    if sum(risk_counter.values()) > 0:
+        seq = [kw for blob in joined_fields for kw in RISK_KEYWORDS if kw.lower() in blob.lower()]
+        if seq:
+            hypotheses.append(f"- 위험 키워드 등장 순서(일부): {', '.join(seq[:10])} ...")
+    else:
+        hypotheses.append(f"- 위험 키워드 흔적이 없습니다. 설비/센서 이상 또는 로그 누락 가능성을 검토해야합니다.")
+
+    # Markdown 본문 구성
+    lines = []
+    lines.append("# 사고 원인 분석 보고서(자동생성)")
+    lines.append("")
+    lines.append(f"- 생성 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"- 로그 총 개수: **{total}**")
+    lines.append(f"- 관찰 구간: **{start} ~ {end}**")
+    lines.append("")
+    lines.append("## 1) 로그 수준(Level) 분포")
+    if level_counts:
+        for lvl, cnt in level_counts.most_common():
+            lines.append(f"- {md_escape(lvl)}: {cnt}")
+    else:
+        lines.append("- 레벨 정보가 없습니다.")
+    lines.append("")
+    lines.append("## 2) 위험 키워드 감지")
+    if risk_counter:
+        for kw, cnt in risk_counter.most_common():
+            lines.append(f"- {kw}: {cnt}")
+    else:
+        lines.append("- 감지된 위험 키워드 없음")
+    lines.append("")
+    lines.append("## 3) 최근 이벤트 샘플(최대 5건, 역순)")
+    if recent:
+        for row in recent:
+            ts = row.get("timestamp", "N/A")
+            lvl = row.get("level", "N/A")
+            msg = row.get("message", "")
+            msg = md_escape(str(msg))[:200]
+            lines.append(f"- [{ts}] ({lvl}) {msg}")
+    else:
+        lines.append("- 샘플을 표시할 수 없습니다.")
+    lines.append("")
+    lines.append("## 4) 원인 가설(데이터 기반 단서)")
+    lines.extend(hypotheses or ["- 제시할 단서가 부족합니다."])
+    lines.append("")
+    lines.append("### 5) 데이터 품질 메모")
+    lines.append("- 'timestamp' 포맷 불일치/누락 시 정렬 정확도 저하 발생.")
+    lines.append("- 레벨/메세지 스키마가 표준화되어 있지 않으면 신뢰도가 떨어질 수 있습니다.")
+    lines.append("")
+
+    out_path.write_text("\n".join(map(str,lines)), encoding="utf-8")
+    return out_path
+
+def filter_risk_logs(logs: list[dict[str, Any]], result_dir: Path) -> Path:
+    '''
+    위험 키워드가 포함된 행만 필터링 후 JSON 형식으로 저장합니다.
+    '''
+    result_dir.mkdir(parents=True, exist_ok=True)
+    patten = re.compile("|".join(re.escape(k) for k in RISK_KEYWORDS), re.IGNORECASE)
+    filtered: list[dict[str, Any]] = []
+    for row in logs:
+        if any(isinstance(v, str) and patten.search(v) for v in row.values()):
+            filtered.append(row)
+
+    out = result_dir / f"risk_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    with out.open("w", encoding="utf-8") as f:
+        json.dump(filtered, f, ensure_ascii=False, indent=2)
+    return out
+
+def search_json(json_path: Path, query: str) -> list[dict[str, Any]]:
+    '''
+    생성된 json 형식에서 부분 문자열을 검색합니다.
+    '''
+    if not json_path.exists():
+        print(f"[경고!] JSON 파일이 존재하지 않습니다.: {json_path}")
+        return []
+    with json_path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    rows: Iterable[dict[str, Any]]
+    if isinstance(data, dict):
+        rows = data.values()
+    elif isinstance(data, list):
+        rows = data
+    else:
+        print("[주의!] JSON 구조를 해석할 수 없습니다(리스트/딕셔너리만 지원가능.")
+        return []
+    
+    q = query.lower()
+    hits: list[dict[str, Any]] = []
+    for row in rows:
+        if any(isinstance(v, str) and q in v.lower() for v in row.values()):
+            hits.append(row)
+    return hits
+                        
+
 def main() -> None:
     try:
         log_path, result_path = require_env()
@@ -180,6 +310,7 @@ def main() -> None:
     if not logs:
         print("log data가 비어 있어 이후 작업을 생략합니다.")
         return
+    
     for row in logs:
         print(row)
 
@@ -195,13 +326,30 @@ def main() -> None:
     for k, v in log_dict.items():
         print(f"{k}: {v}")
 
-    # JSON 저장
-    print("\n JSON으로 저장합니다!")
+    print("\n④ JSON으로 저장:")
+    out_json = save_to_json(log_dict, result_path, default_stem=Path(log_path).stem)
+    print(f"저장 완료: {out_json}")
+
+    print("\n⑤ 사고 분석 보고서(log_analysis.md) 생성:")
+    md_path = generate_markdown_report(sorted_logs, Path("log_analysis.md"))
+    print(f"보고서 저장 완료: {md_path}")
+
+    print("\n⑥ 위험 키워드 필터 결과 저장:")
+    risk_out = filter_risk_logs(sorted_logs, Path(out_json).parent)
+    print(f"필터 결과 저장: {risk_out}")
+
+    print("\n⑦ JSON 검색: 검색할 문자열을 입력하세요(엔터=건너뜀)")
     try:
-        out = save_to_json(log_dict, result_path)
-        print(f"저장 완료 {out}")
-    except OSError as e:
-        print(f"[저장 오류] {e}")
+        query = input("> ").strip()
+    except EOFError:
+        query = ""
+    if query:
+        hits = search_json(Path(out_json), query)
+        print(f"검색 결과: {len(hits)}건")
+        for h in hits[:20]:
+            print(h)
+    else:
+        print("검색을 건너뜁니다.")
 
 if __name__ == "__main__":
     main()
