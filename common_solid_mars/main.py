@@ -14,32 +14,46 @@
 
 # 구현에 필요한 라이브러리를 호출합니다.
 import csv
-import os
 import re
 import json
 from datetime import datetime
 from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable
-
-LOG_ENV = "LOG_FILE"
-RESULT_ENV = "RESULT"
+from sys import argv
 
 # 위험 키워드 정의
-RISK_KEYWORDS = ("폭발", "누출", "고온", "oxygen", "Oxygen")
+RISK_KEYWORDS = ("폭발", "누출", "고온", "Oxygen")
+
+# import os
+# LOG_ENV = "LOG_FILE"
+# RESULT_ENV = "RESULT"
+
+# def require_env() -> tuple[Path, Path]:
+#     '''이 함수는 환경 변수의 유효성을 검사하고 경로를 반환합니다.
+#     '''
+#     log_file = os.getenv(LOG_ENV)
+#     result_file = os.getenv(RESULT_ENV)
+
+#     missing = [name for name, val in [(LOG_ENV, log_file), (RESULT_ENV, result_file)] if not val]
+#     if missing:
+#         # 환경 변수 없으면 강제 오류
+#         raise RuntimeError(f".env에 {', '.join(missing)} 변수가 없습니다.")
+    
+#     return Path(log_file), Path(result_file)
 
 def require_env() -> tuple[Path, Path]:
-    '''이 함수는 환경 변수의 유효성을 검사하고 경로를 반환합니다.
+    '''(.env 미사용) CLI 인자 또는 기본값으로 경로 반환
+    사용법: python main.py [로그파일경로] [결과경로(디렉터리 또는 .json)]
     '''
-    log_file = os.getenv(LOG_ENV)
-    result_file = os.getenv(RESULT_ENV)
+    base = Path.cwd()
+    log = Path(argv[1]) if len(argv) > 1 else base / "mission_computer_main.log"
+    out = Path(argv[2]) if len(argv) > 2 else base / "result"
 
-    missing = [name for name, val in [(LOG_ENV, log_file), (RESULT_ENV, result_file)] if not val]
-    if missing:
-        # 환경 변수 없으면 강제 오류
-        raise RuntimeError(f".env에 {', '.join(missing)} 변수가 없습니다.")
-    
-    return Path(log_file), Path(result_file)
+    # 홈(~) 확장 + 절대경로 정규화 (협업/클론 환경에서도 안전)
+    log = log.expanduser().resolve()
+    out = out.expanduser().resolve()
+    return log, out
 
 def read_log_file(path: Path) -> list[dict[str, Any]]:
     '''
@@ -66,20 +80,21 @@ def read_log_file(path: Path) -> list[dict[str, Any]]:
                 sample = f.read(4096)
                 f.seek(0)
                 try:
-                    dialect = csv.Sniffer().sniff(sample, delimiters=',\;\t|')
+                    dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
                 except csv.Error:
                     # 추정 실패 시 콤마 기본
                     dialect = csv.get_dialect('excel') # 실패 시 기본값 세팅
 
                 reader = csv.DictReader(f, dialect=dialect)
                 rows: list[dict[str, Any]] = []
-                for row in reader:
+                for i, row in enumerate(reader, start=1):
                     # 키/값 str이면 좌우 공백 제거
                     clean = {
                         (k.strip() if isinstance(k, str) else k):
                         (v.strip() if isinstance(v, str) else v)
                         for k, v in row.items()
                     }
+                    clean["orig_idx"] = i   # ← 원본 CSV의 1-based 행 번호
                     rows.append(clean)
                 return rows
         except UnicodeDecodeError:
@@ -88,28 +103,29 @@ def read_log_file(path: Path) -> list[dict[str, Any]]:
     # 모든 인코딩 시도 실패.
     raise UnicodeDecodeError("utf-8/utf-8-sig", b"", 0, 1, "지원 인코딩으로 디코딩 실패")
 
-def sort_log_datetime(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def sort_log_datetime(logs):
     '''
     Args:
     - timestamp 필드 기준으로 시간 역순 정렬을 위한 함수입니다.
     - (YYYY-MM-DD HH:MM:SS) 기준 역순 정렬
-    - timestmap 키가 없거나 포맷이 다르면 원본 순서 그대로 반환합니다.
     '''
-    def parse(dt: str) -> datetime:
-        return datetime.strptime(dt, "%Y-%m-%d %H:%M:%S")
+    def key(row: dict[str, Any]):
+        ts = parse_ts_safe(row.get("timestamp"))
+        return ts or datetime.min   # 파싱 실패 시 안전하게 최소값
     try:
-        return sorted(logs, key=lambda x: parse(x["timestamp"]), reverse=True)
-    except KeyError:
+        return sorted(logs, key=key, reverse=True)
+    except Exception:
         return logs
 
 def convert_list_to_dict(logs: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
     '''
-    Agrs:
+    Args:
     리스트를 {인덱스: 행} 딕셔너리로 변환
+    인덱스 시작 1,지정없으면 0부터 시작함.
     '''
-    return {i: log for i, log in enumerate(logs)}
+    return {i: log for i, log in enumerate(logs, start=1)}
 
-def save_to_json(data: dict[int, dict[str, Any]] | list[dict[str, Any]], result_path: Path, *, default_stem: str = "misstion_computer_main",) -> Path:
+def save_to_json(data: dict[int, dict[str, Any]] | list[dict[str, Any]], result_path: Path, *, default_stem: str = "mission_computer_main",) -> Path:
     '''
     - JSON 저장(폴더 자동 생성 및 예외 처리 포함)
     - 결과물을 timestamp 기준으로 덮어쓰기 방지하는 함수입니다.
@@ -122,7 +138,7 @@ def save_to_json(data: dict[int, dict[str, Any]] | list[dict[str, Any]], result_
     # 확장자가 json이라면 파일로 간주, 아니면 폴더로 간주
     if p.suffix.lower() == ".json":
         base = p.with_suffix(".json")
-        base.parent.mkdir(parents=True, exits_ok=True)
+        base.parent.mkdir(parents=True, exist_ok=True)
         out = base.with_name(f"{base.stem}_{ts}{base.suffix}")
 
     else:
@@ -141,7 +157,7 @@ def parse_ts_safe(s: Any) -> datetime | None:
     '''
     if isinstance(s, str):
         try:
-            return datetime.strptime(s, "%Y-%m-%d %H:%M:%S")
+            return datetime.strptime(s.strip(), "%Y-%m-%d %H:%M:%S")
         except ValueError:
             return None
     return None
@@ -171,7 +187,7 @@ def generate_markdown_report(logs: list[dict[str, Any]], out_path: Path = Path("
     # 레벨 분포
     level_counts: Counter[str] = Counter()
     for row in logs:
-        level = row.get("level")
+        level = row.get("level") or row.get("event")
         if isinstance(level, str) and level:
             level_counts[level] += 1
 
@@ -248,10 +264,10 @@ def filter_risk_logs(logs: list[dict[str, Any]], result_dir: Path) -> Path:
     위험 키워드가 포함된 행만 필터링 후 JSON 형식으로 저장합니다.
     '''
     result_dir.mkdir(parents=True, exist_ok=True)
-    patten = re.compile("|".join(re.escape(k) for k in RISK_KEYWORDS), re.IGNORECASE)
+    pattern = re.compile("|".join(re.escape(k) for k in RISK_KEYWORDS), re.IGNORECASE)
     filtered: list[dict[str, Any]] = []
     for row in logs:
-        if any(isinstance(v, str) and patten.search(v) for v in row.values()):
+        if any(isinstance(v, str) and pattern.search(v) for v in row.values()):
             filtered.append(row)
 
     out = result_dir / f"risk_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -271,11 +287,11 @@ def search_json(json_path: Path, query: str) -> list[dict[str, Any]]:
 
     rows: Iterable[dict[str, Any]]
     if isinstance(data, dict):
-        rows = data.values()
+        rows = list(data.values())
     elif isinstance(data, list):
         rows = data
     else:
-        print("[주의!] JSON 구조를 해석할 수 없습니다(리스트/딕셔너리만 지원가능.")
+        print("[주의!] JSON 구조를 해석할 수 없습니다(리스트/딕셔너리만 지원가능).")
         return []
     
     q = query.lower()
@@ -287,12 +303,7 @@ def search_json(json_path: Path, query: str) -> list[dict[str, Any]]:
                         
 
 def main() -> None:
-    try:
-        log_path, result_path = require_env()
-    except RuntimeError as e:
-        print(f"[환경 변수 오류] {e}")
-        return
-
+    log_path, result_path = require_env()
     print("log 원본 출력: ")
     try:
         logs = read_log_file(log_path)
