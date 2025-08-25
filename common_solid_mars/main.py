@@ -357,7 +357,7 @@ def main() -> None:
     if query:
         hits = search_json(Path(out_json), query)
         print(f"검색 결과: {len(hits)}건")
-        for h in hits[:20]:
+        for h in hits[:35]:
             print(h)
     else:
         print("검색을 건너뜁니다.")
