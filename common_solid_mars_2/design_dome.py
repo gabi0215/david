@@ -20,7 +20,12 @@ MARS_G = 0.38
 OUT_DIR = (Path(__file__).parent / "result").resolve()
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
+# 전역: 마지막 결과 저장 (과제 조건)
+LAST_RESULT = {"material": None, "diameter": None, "thickness": None,
+               "area_m2": None, "weight_kg": None}
 
+# 영문 재질 -> 한글 라벨
+MATERIAL_KO = {"glass": "유리", "aluminum": "알루미늄", "carbon_steel": "탄소강"}
 
 def extract_zip(zip_path, result_dir=None):
     """zip파일 예외처리 및 압축해제 함수입니다.
@@ -228,13 +233,6 @@ def sphere_area(diameter_m: float, material: str, thickness_cm: float=1.0) -> tu
     
     return round(curved_area_m2,3), round(weight_mars,3)
 
-# 전역: 마지막 결과 저장 (과제 조건)
-LAST_RESULT = {"material": None, "diameter": None, "thickness": None,
-               "area_m2": None, "weight_kg": None}
-
-# 영문 재질 -> 한글 라벨
-MATERIAL_KO = {"glass": "유리", "aluminum": "알루미늄", "carbon_steel": "탄소강"}
-
 def _pretty_int_or_3(x: float) -> str:
     """정수면 '10', 아니면 '10.500'처럼 3자리 고정"""
     return str(int(x)) if float(x).is_integer() else f"{x:.3f}"
@@ -294,34 +292,59 @@ def analysis_parts():
     p3 = find_file("mars_base_main_parts-003.csv")
     
     try:
-        d1,d2,d3 = _parts_to_dict(p1),_parts_to_dict(p2),_parts_to_dict(p3)
-        names = sorted(set(d1)|set(d2)|set(d3))
+        arr1,arr2,arr3 = _parts_to_dict(p1),_parts_to_dict(p2),_parts_to_dict(p3)
+        names = sorted(set(arr1)|set(arr2)|set(arr3))
         mat = np.vstack([
-            np.array([d1.get(k, np.nan) for k in names], float),
-            np.array([d2.get(k, np.nan) for k in names], float),
-            np.array([d3.get(k, np.nan) for k in names], float),
+            np.array([arr1.get(k, np.nan) for k in names], float),
+            np.array([arr2.get(k, np.nan) for k in names], float),
+            np.array([arr3.get(k, np.nan) for k in names], float),
         ])
         with np.errstate(all='ignore'):
             avg = np.nanmean(mat, axis=0)
         mask = np.isfinite(avg) & (avg < 50)
-        out_csv = OUT_DIR / "parts_to_work_on.csv"
-        with open(out_csv,"w",encoding="utf-8-sig",newline="") as f:
-            w=csv.writer(f); w.writerow(["parts","avg_strength"])
-            for name,val in zip(np.array(names)[mask], avg[mask]):
-                w.writerow([name, f"{float(val):.3f}"])
         
+        out_csv = OUT_DIR / "parts_to_work_on.csv"
+        try:
+            with open(out_csv,"w",encoding="utf-8-sig",newline="o") as f:
+                w = csv.writer(f); w.writerow(["parts","avg_strength"])
+                for name,val in zip(np.array(names)[mask], avg[mask]):
+                    w.writerow([name, f"{float(val):.3f}"])
+        except OSError as e:
+            print(f"[저장 오류] {out_csv}: {e}")
+            return
+
         # 보너스: transpose
+        parts2_csv = OUT_DIR / "parts2.csv"
         parts2=[]
-        with open(out_csv,"r",encoding="utf-8-sig") as f:
-            rd = csv.reader(f); next(rd,None)
-            for row in rd: parts2.append(row)
+        try:
+            with open(out_csv, "r", encoding="utf-8-sig", newline="") as f:
+                rd = csv.reader(f); next(rd,None)
+                for row in rd: parts2.append(row)
+            with open(parts2_csv, "w", encoding="utf-8-sig", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["parts", "avg_strength"])
+                w.writerows(parts2)
+        except OSError as e:
+            print(f"[저장 오류] {parts2_csv}: {e}")
+            return
+        
+        # 전치 행렬 구한 뒤 parts3 저장 및 출력
         parts3 = np.array(parts2,dtype=object).T
-        out_csv2 = OUT_DIR / "parts3.csv"
-        with open(out_csv2,"w",encoding="utf-8-sig",newline="") as f:
-            w=csv.writer(f)
-            for row in parts3: w.writerow(row)
-        print(f"parts 저장 완료 -> {out_csv.name}, {out_csv2.name}")
-    
+        out_csv3 = OUT_DIR / "parts3.csv"
+        try:
+            with open(out_csv3, "w", encoding="utf-8-sig", newline="") as f:
+                w=csv.writer(f)
+                for row in parts3: w.writerow(row)
+        except OSError as e:
+            print(f"[저장 오류] {out_csv3}: {e}")
+            return
+
+        # 결과값 출려하기
+        print("===== parts3 전치 행렬 ===")
+        for row in parts3:
+            print(", ".join(map(str, row)))
+
+        print(f"저장 완료 -> {out_csv.name}, {parts2_csv.name}, {out_csv3.name}")
     except FileNotFoundError:
         print(" CSV 파일을 찾을 수 없습니다.")
     except Exception as e:
