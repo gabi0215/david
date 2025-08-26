@@ -225,7 +225,6 @@ def convert_csv(csv_path: Path | str | None = None, out_dir: Path = OUT_DIR):
     except Exception as e:
         print(f"오류: {e}"); return [], [], []
 
-
 def sphere_area(diameter_m: float, material: str, thickness_cm: float=1.0) -> tuple[float,float]:
     """반구 곡면적[m^2], 화성 중력 반영 무게[kg]"""
     
@@ -285,7 +284,6 @@ def mars_structure_program():
                   f"화성 유효중량 ⇒ {weight_kg:.3f} kg")
         except Exception as e:
             print(f"입력 오류: {e}")
-
 
 def _parts_to_dict(p: Path) -> dict[str,float]:
     out = {}
