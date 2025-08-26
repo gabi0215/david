@@ -27,6 +27,9 @@ LAST_RESULT = {"material": None, "diameter": None, "thickness": None,
 # 영문 재질 -> 한글 라벨
 MATERIAL_KO = {"glass": "유리", "aluminum": "알루미늄", "carbon_steel": "탄소강"}
 
+# 데이터 부품관리 평균 값에 대한 재사용성을 위한 상수 선언입니다.
+PART_STRENGTH_MAX = 50
+
 def extract_zip(zip_path, result_dir=None):
     """zip파일 예외처리 및 압축해제 함수입니다.
 
@@ -110,9 +113,17 @@ def print_csv_raw(csv_path: Path) -> None:
     Args:
         csv_path (Path)
     """
-    with open(csv_path, "r", encoding="utf-8-sig") as f:
-        print("\n ======================원본 CSV 전체 출력 ===========================")
-        print(f.read().rstrip())
+    try:
+        with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
+            print("\n ======================원본 CSV 전체 출력 ===========================")
+            print(f.read().rstrip())
+    except OSError as e:
+        print(f"[읽기오류] {csv_path} : {e}")
+    except UnicodeDecodeError:
+        # BOM없으면 재시도 처리
+        with open(csv_path, "r", encoding="utf-8", newline="") as f:
+            print("\n ======================원본 CSV 전체 출력 ===========================")
+            print(f.read().rstrip())
 
 def print_rows_plain(rows: list[dict], title: str, limit: int | None = None) -> None:
     """dict 형태가 아닌 한줄로 출력
@@ -271,7 +282,7 @@ def mars_structure_program():
                   f"지름 ⇒ {_pretty_int_or_3(d)}, "
                   f"두께 ⇒ {_pretty_int_or_3(t)}, "
                   f"면적 ⇒ {area_m2:.3f}, "
-                  f"화성 유효중량 ⇒ {weight_kg:.3f} kgf")
+                  f"화성 유효중량 ⇒ {weight_kg:.3f} kg")
         except Exception as e:
             print(f"입력 오류: {e}")
 
@@ -301,11 +312,11 @@ def analysis_parts():
         ])
         with np.errstate(all='ignore'):
             avg = np.nanmean(mat, axis=0)
-        mask = np.isfinite(avg) & (avg < 50)
+        mask = np.isfinite(avg) & (avg < PART_STRENGTH_MAX)
         
         out_csv = OUT_DIR / "parts_to_work_on.csv"
         try:
-            with open(out_csv,"w",encoding="utf-8-sig",newline="o") as f:
+            with open(out_csv,"w",encoding="utf-8-sig",newline="") as f:
                 w = csv.writer(f); w.writerow(["parts","avg_strength"])
                 for name,val in zip(np.array(names)[mask], avg[mask]):
                     w.writerow([name, f"{float(val):.3f}"])
@@ -329,7 +340,7 @@ def analysis_parts():
             return
         
         # 전치 행렬 구한 뒤 parts3 저장 및 출력
-        parts3 = np.array(parts2,dtype=object).T
+        parts3 = np.array(parts2, dtype=object).T
         out_csv3 = OUT_DIR / "parts3.csv"
         try:
             with open(out_csv3, "w", encoding="utf-8-sig", newline="") as f:
@@ -340,11 +351,11 @@ def analysis_parts():
             return
 
         # 결과값 출려하기
-        print("===== parts3 전치 행렬 ===")
+        print(f"\n================ parts3 전치 행렬 ================")
         for row in parts3:
             print(", ".join(map(str, row)))
 
-        print(f"저장 완료 -> {out_csv.name}, {parts2_csv.name}, {out_csv3.name}")
+        print(f"\n저장 완료 -> {out_csv.name}, {parts2_csv.name}, {out_csv3.name}")
     except FileNotFoundError:
         print(" CSV 파일을 찾을 수 없습니다.")
     except Exception as e:
@@ -377,7 +388,7 @@ if __name__ == "__main__":
     analysis_parts()
 
     try:
-        print("\n[Mars 반구체 돔 계산기 실행!] 종료하려면 q를 입력하세요.")
+        print("\n[Mars 반구체 돔 계산기 실행!] 종료하려면 q를 입력하세요.]")
         mars_structure_program()
     except KeyboardInterrupt:
         print("\n사용자 중단으로 종료합니다.")
