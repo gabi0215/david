@@ -89,23 +89,9 @@ def find_file(name: str) -> Path:
             for q in d.rglob("*"):
                 if q.is_file() and not _skip(q) and q.name.lower() == target_lower:
                     return q
-
-    # 3) 힌트: 실제 가지고 있는 CSV 목록 일부 보여주기
-    hints = []
-    for d in targets:
-        if d.exists():
-            for q in d.rglob("*.csv"):
-                if not _skip(q):
-                    try:
-                        hints.append(str(q.relative_to(BASE)))
-                    except Exception:
-                        hints.append(str(q))
-    hint_text = "\n  - " + "\n  - ".join(hints[:10]) if hints else " (none)"
-
+    # 찾을 수 없을 시
     raise FileNotFoundError(
-        f"{name} not found. searched: {', '.join(str(d) for d in targets)}\n"
-        f"Hint: existing CSVs (up to 10):{hint_text}"
-    )
+        f"{name} not found. searched: {', '.join(str(d) for d in targets)}")
 
 def print_csv_raw(csv_path: Path) -> None:
     """CSV 원본 그대로 출력하는 함수입니다.
@@ -197,7 +183,7 @@ def convert_csv(csv_path: Path | str | None = None, out_dir: Path = OUT_DIR):
         for r in rows: 
             r["Flammability"] = _to_float(r.get("Flammability",""))
         rows.sort(
-            key=lambda r: (r["Flammability"] if r["Flammability"]==r["Flammability"] else -1),
+            key=lambda r: (r["Flammability"] if isinstance(r["Flammability"], float) else -1),
             reverse=True)
         
         danger = [r for r in rows if isinstance(r["Flammability"], float) and r["Flammability"]>=0.7]
@@ -212,7 +198,7 @@ def convert_csv(csv_path: Path | str | None = None, out_dir: Path = OUT_DIR):
                 # 오탈자 수정 + 숫자일 때만 포맷팅
                 if isinstance(r_out.get("Flammability"), float):
                     r_out["Flammability"] = f"{r_out['Flammability']:.3f}"
-                w.writerow(r_out)   # writerows -> writerow
+                w.writerow(r_out)
 
         # 보너스: 이진 저장/복구
         with open(bin_path, "wb") as f: pickle.dump(rows, f)
@@ -289,10 +275,14 @@ def _parts_to_dict(p: Path) -> dict[str,float]:
     out = {}
     with open(p,"r",encoding="utf-8-sig",newline="") as f:
         for row in csv.DictReader(f):
+            name = str(row.get("parts", "")).strip()
+            if not name:
+                continue
             try:
-                out[str(row["parts"]).strip()] = float(row["strength"])
-            except (KeyError, TypeError, ValueError):
-                pass
+                value = float(row.get("strength", ""))
+            except (TypeError, ValueError):
+                value = float("nan")
+            out[name] = value
     return out
 
 def analysis_parts():
@@ -308,6 +298,7 @@ def analysis_parts():
             np.array([arr2.get(k, np.nan) for k in names], float),
             np.array([arr3.get(k, np.nan) for k in names], float),
         ])
+        # errstate -> np에서 경고 or 에러 임시 제어 도구
         with np.errstate(all='ignore'):
             avg = np.nanmean(mat, axis=0)
         mask = np.isfinite(avg) & (avg < PART_STRENGTH_MAX)
