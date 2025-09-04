@@ -201,8 +201,12 @@ def convert_csv(csv_path: Path | str | None = None, out_dir: Path = OUT_DIR):
                 w.writerow(r_out)
 
         # 보너스: 이진 저장/복구
-        with open(bin_path, "wb") as f: pickle.dump(rows, f)
-        with open(bin_path, "rb") as f: restored = pickle.load(f)
+        with open(bin_path, "wb") as f:
+            pickle.dump(rows, f)
+        
+        with open(bin_path, "rb") as f:
+            restored = pickle.load(f)
+        
         print(f"\n위험 {len(danger)}건 저장 -> {danger_csv_path.name} / 정렬본BIN -> {bin_path.name}")
         return rows, danger, restored
     
@@ -266,7 +270,7 @@ def mars_structure_program():
             print(f"재질 ⇒ {MATERIAL_KO[m]}, "
                   f"지름 ⇒ {_pretty_int_or_3(d)}, "
                   f"두께 ⇒ {_pretty_int_or_3(t)}, "
-                  f"면적 ⇒ {area_m2:.3f}, "
+                  f"면적 ⇒ {area_m2:.3f} m², "
                   f"화성 유효중량 ⇒ {weight_kg:.3f} kg")
         except Exception as e:
             print(f"입력 오류: {e}")
@@ -301,6 +305,7 @@ def analysis_parts():
         # errstate -> np에서 경고 or 에러 임시 제어 도구
         with np.errstate(all='ignore'):
             avg = np.nanmean(mat, axis=0)
+        # 필터링 된 값의 True인 값만 mask변수 선언
         mask = np.isfinite(avg) & (avg < PART_STRENGTH_MAX)
         
         out_csv = OUT_DIR / "parts_to_work_on.csv"
@@ -319,7 +324,8 @@ def analysis_parts():
         try:
             with open(out_csv, "r", encoding="utf-8-sig", newline="") as f:
                 rd = csv.reader(f); next(rd,None)
-                for row in rd: parts2.append(row)
+                for row in rd:
+                    parts2.append(row)
             with open(parts2_csv, "w", encoding="utf-8-sig", newline="") as f:
                 w = csv.writer(f)
                 w.writerow(["parts", "avg_strength"])
