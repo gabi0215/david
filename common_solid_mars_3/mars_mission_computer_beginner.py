@@ -78,6 +78,7 @@ class MissionComputer:
 
     # 문제 2: 5초 주기 수집(JSON), q로 종료
     def get_sensor_data(self, period_sec: float = 5.0, stop_event: Event | None = None) -> None:
+        # time 모듈의 단조 시계 함수(경과 시간 측정을 위해 사용)
         next_tick = time.monotonic()
         while True:
             if stop_event and stop_event.is_set():
@@ -94,6 +95,7 @@ class MissionComputer:
             if remaining > 0:
                 if stop_event and stop_event.is_set():
                     break
+                # time 모듈로 현재 실행 중인 쓰레드를 지정한 (Seconds)만큼 정지.
                 time.sleep(remaining)
 
     # 문제 3-1: 시스템 정보
@@ -113,6 +115,7 @@ class MissionComputer:
         cpu_pct = None
         mem_pct = None
         try:
+            # hasattr 객체에 속성 이름이 있는지 불리언으로 확인.
             if hasattr(os, "getloadavg"):
                 la1, _la5, _la15 = os.getloadavg()  # macOS/Linux
                 cores = os.cpu_count() or 1
@@ -132,12 +135,25 @@ class MissionComputer:
     
 # ───────── 유틸 ─────────
 def now_iso() -> str:
+    """
+    현재 로컬 시각을 가져옵니다.
+    초 단위까지의 ISO 8601 문자열을 반환합니다.
+
+    Returns:
+        (ex: 2025-09-12T18:42:03)
+    """
     return datetime.now().isoformat(timespec="seconds")
 
-
 def json_dumps(obj: dict) -> str:
-    return json.dumps(obj, ensure_ascii=False)
+    """딕셔너리를 JSON 문자열로 직렬화한다.
 
+    Args:
+        obj (dict): JSON으로 직렬화할 딕셔너리(내부 값은 JSON 직렬화 가능해야 함).
+
+    Returns:
+        str: 비ASCII 문자를 이스케이프하지 않는(JSON 그대로 유지) JSON 문자열.
+    """
+    return json.dumps(obj, ensure_ascii=False)
 
 def run_threads() -> None:
     """
