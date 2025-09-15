@@ -30,7 +30,13 @@ ENV_SPEC = {
     "mars_base_internal_co2":         ("%",    (0.02, 0.10), 3),
     "mars_base_internal_oxygen":      ("%",    (4.0, 7.0),   2),
 }
+
+# 저장될 폴더 설정
 LOG_DIR = Path("logs")
+
+# 자동화 주기 상수화
+SENSOR_PERIOD_SEC = 5.0
+INFO_PERIOD_SEC   = 20.0
 
 
 # ───────── 문제 1: 더미 센서 ─────────
@@ -49,6 +55,8 @@ class DummySensor:
         """
         for key, (_unit, (lo, hi), nd) in ENV_SPEC.items():
             val = round(random.uniform(lo, hi), nd)
+            if nd == 0:
+                val = int(val)
             self.env_values[key] = val
 
     def get_env(self, *, log: bool = False) -> dict:
@@ -71,7 +79,7 @@ class MissionComputer:
     """
     센서 수집(주기), 시스템 정보/부하 출력.
     """
-    def __init__(self, name="RunComputer"):
+    def __init__(self, name="runComputer"):
         self.name = name
         self.sensor = DummySensor()
         self.env_values = {k: None for k in ENV_SPEC}
@@ -140,7 +148,7 @@ def now_iso() -> str:
     초 단위까지의 ISO 8601 문자열을 반환합니다.
 
     Returns:
-        (ex: 2025-09-12T18:42:03)
+        str: ISO 8601 string (e.g., "2025-09-12T18:42:03")
     """
     return datetime.now().isoformat(timespec="seconds")
 
@@ -163,7 +171,7 @@ def run_threads() -> None:
     stop = Event()
 
     def info_loop():
-        period = 20.0
+        period = INFO_PERIOD_SEC
         next_tick = time.monotonic()
         while not stop.is_set():
             mc.get_mission_computer_info()
@@ -173,7 +181,7 @@ def run_threads() -> None:
                 time.sleep(remaining)
 
     def load_loop():
-        period = 20.0
+        period = INFO_PERIOD_SEC
         next_tick = time.monotonic()
         while not stop.is_set():
             mc.get_mission_computer_load()
@@ -183,7 +191,7 @@ def run_threads() -> None:
                 time.sleep(remaining)
 
     def sensor_loop():
-        mc.get_sensor_data(period_sec=20.0, stop_event=stop)
+        mc.get_sensor_data(period_sec=SENSOR_PERIOD_SEC, stop_event=stop)
 
     t1 = Thread(target=info_loop, daemon=True)
     t2 = Thread(target=load_loop, daemon=True)
@@ -238,7 +246,6 @@ def _mac_memory_percent() -> float | None:
     except Exception:
         return None
 
-
 # ───────── 메인 ─────────
 def main(argv: list[str]) -> None:
     mode = (argv[1] if len(argv) > 1 else "p1").lower()
@@ -255,7 +262,7 @@ def main(argv: list[str]) -> None:
 
     elif mode == "p2":
         # 문제2 실행: 5초마다 JSON 출력, q로 종료
-        mc = MissionComputer("RunComputer")
+        mc = MissionComputer("runComputer")
         stop = Event()
         th = Thread(target=mc.get_sensor_data, kwargs={"period_sec": 5.0, "stop_event": stop}, daemon=True)
         th.start()
@@ -283,7 +290,6 @@ def main(argv: list[str]) -> None:
 
     else:
         print("Usage: python mars_mission_computer_beginner.py [p1|p2|p3|p4-threads]")
-
 
 if __name__ == "__main__":
     main(sys.argv)
