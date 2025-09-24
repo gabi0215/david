@@ -1,15 +1,12 @@
-# mars_mission_computer_beginner.py
-# ─────────────────────────────────────────────────────────
-# 초급자 버전(간단/짧게): 문제1~3 + (문제4: 쓰레드만)
-# 표준 라이브러리만 사용
+
 # 실행 예)
-#   python mars_mission_computer_beginner.py p1
-#   python mars_mission_computer_beginner.py p2
-#   python mars_mission_computer_beginner.py p3
-#   python mars_mission_computer_beginner.py p4-threads
+#   python mars_mission_computer.py p1
+#   python mars_mission_computer.py p2
+#   python mars_mission_computer.py p3
+#   python mars_mission_computer.py p4-threads
+#   python mars_mission_computer.py p4-procs
 # 종료: p2/p4-threads 모드에서 터미널에 q + Enter
 # ─────────────────────────────────────────────────────────
-
 
 import json
 import os
@@ -17,10 +14,16 @@ import platform
 import random
 import sys
 import time
-import psutil
 from datetime import datetime
 from pathlib import Path
 from threading import Event, Thread
+from multiprocessing import Process, Event as MpEvent
+
+# pustil
+try:
+    import psutil
+except Exception:
+    psutil = None
 
 # ───────── 문제 공통: 환경 항목 스펙 ─────────
 ENV_SPEC = {
@@ -38,6 +41,50 @@ LOG_DIR = Path("logs")
 # 자동화 주기 상수화
 SENSOR_PERIOD_SEC = 5.0
 INFO_PERIOD_SEC   = 20.0
+
+# 보너스 과제
+SETTINGS_PATH = Path('setting.txt')
+
+def load_settings() -> dict[str, set[str]]:
+    """
+    setting.txt를 읽어 섹션별 허용 키 집합을 만든다.
+    파일이 없거나 비어 있으면 모든 키 허용(빈 집합은 '전체 허용' 의미).
+    형식 예)
+      sensor=mars_base_internal_temperature,mars_base_external_temperature
+      info=os,os_release
+      load=cpu_percent,memory_percent
+    """
+    allow = {'sensor': set(), 'info': set(), 'load': set()}
+
+    try:
+        if not SETTINGS_PATH.exists():
+            return allow  # 전체 허용
+        
+        for line in SETTINGS_PATH.read_text(encoding='utf-8').splitlines():
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+
+            key, csv = line.split('=', 1)
+            key = key.strip().lower()
+
+            if key in allow:
+                vals = {t.strip() for t in csv.split(',') if t.strip()}
+                allow[key] = vals
+
+    except Exception:
+        # 설정 파싱 실패 시 안전하게 전체 허용
+        return {'sensor': set(), 'info': set(), 'load': set()}
+    return allow
+
+def filter_dict(data: dict, allow: set[str]) -> dict:
+    """
+    allow가 비어있으면 data 그대로.
+    비어있지 않으면 allow에 포함된 키만 남겨 반환.
+    """
+    if not allow:
+        return dict(data)
+    return {k: v for k, v in data.items() if k in allow}
 
     
 # ───────── 유틸 ─────────
@@ -61,6 +108,56 @@ def json_dumps(obj: dict) -> str:
         str: 비ASCII 문자를 이스케이프하지 않는(JSON 그대로 유지) JSON 문자열.
     """
     return json.dumps(obj, ensure_ascii=False)
+
+def _get_total_memory_bytes() -> int | None:
+    """총 물리 메모리 바이트(가능하면). 실패 시 None"""
+    # 1) psutil 우선
+    if psutil is not None:
+        try:
+            return int(psutil.virtual_memory().total)
+        except Exception:
+            pass
+    # 2) macOS: sysctl
+    if sys.platform == "darwin":
+        import subprocess
+        try:
+            out = subprocess.check_output(["sysctl", "-n", "hw.memsize"]).strip()
+            return int(out)
+        except Exception:
+            return None
+    # 3) Linux: /proc/meminfo
+    if sys.platform.startswith("linux"):
+        try:
+            with open("/proc/meminfo", "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("MemTotal:"):
+                        kb = int(line.split()[1])
+                        return kb * 1024
+        except Exception:
+            return None
+    # 4) Windows: ctypes
+    if os.name == "nt":
+        import ctypes
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+        try:
+            stat = MEMORYSTATUSEX(); stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+            return int(stat.ullTotalPhys)
+        except Exception:
+            return None
+    return None
+
 
 # ───────── 문제 1: 더미 센서 ─────────
 class DummySensor:
@@ -132,7 +229,8 @@ class DummySensor:
                 # 파일이름의 형태 지정 및 열고 append모드, 인코딩 지정  후
                 # 별칭 지정 및 비ASCII문자(W/m²) 등의 한글,기호를 이스케이프 하지 않고 그대로 기록
                 with (LOG_DIR / f"env_{datetime.now():%Y%m%d}.log").open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                    json.dump(rec, f, ensure_ascii=False)
+                    f.write("\n")
             
             except Exception as e:
                 print(json_dumps({"ts": now_iso(), "type": "warn", "msg": f"log failed: {e}"}))
@@ -156,6 +254,9 @@ class MissionComputer:
         self._avg_sum = {k: 0.0 for k in ENV_SPEC}
         # 샘플 개수
         self._avg_cnt = 0
+        # 출력 항목 설정(없으면 전체 허용)
+        self._settings = load_settings()  # {'sensor': set(), 'info': set(), 'load': set()}
+
 
     # 5초 주기 수집(JSON), q로 종료
     def get_sensor_data(self, period_sec: float = SENSOR_PERIOD_SEC, stop_event: Event | None = None) -> None:
@@ -166,7 +267,7 @@ class MissionComputer:
         # 루프 시작마다 종료 신호를 확인합니다. -> Event.is_set()이 True라면 정상 종료 로그를 한 줄 찍고 종료.
         while True:
             if stop_event and stop_event.is_set():
-                print(json_dumps({"ts": now_iso(), "type": "system", "msg": "System stoped...."}))
+                print(json_dumps({"ts": now_iso(), "type": "system", "msg": "System stopped...."}))
                 break
 
             # ENV_SPEC범위에서 난수 생성
@@ -175,8 +276,46 @@ class MissionComputer:
             snap = self.sensor.get_env(log=True)
             # 제일 최신 값을 캐시에 반영합니다.
             self.env_values.update(snap)
-            out = {"ts": now_iso(), "node": self.name, "type": "sensor", "data": snap}
+            
+            data_sensor = filter_dict(snap, self._settings.get('sensor', set()))
+            out = {"ts": now_iso(), "node": self.name, "type": "sensor", "data": data_sensor}
             print(json_dumps(out))
+
+            # --- 5분 평균 누적/평균/리셋 ---------------------------
+            # 1) 합계/개수 누적 (숫자형만)
+            for k, v in snap.items():
+                if isinstance(v, (int, float)):
+                    self._avg_sum[k] += float(v)
+            self._avg_cnt += 1
+
+            # 2) 5분(=300초) 경과 시 평균 산출
+            elapsed = time.monotonic() - self._avg_start
+            if elapsed >= 300.0 and self._avg_cnt > 0:
+                avg = {
+                    k: round(self._avg_sum[k] / self._avg_cnt, ENV_SPEC[k][2])
+                    for k in ENV_SPEC
+                }
+
+                # (선택) setting.txt 필터 적용하려면 self._settings 사용: 아래 ②에서 추가
+                data_avg = avg if not hasattr(self, "_settings") else filter_dict(
+                    avg, self._settings.get('sensor', set())
+                )
+
+                print(json_dumps({
+                    "ts": now_iso(),
+                    "node": self.name,
+                    "type": "sensor_avg5m",
+                    "window_sec": int(elapsed),
+                    "samples": self._avg_cnt,
+                    "data": data_avg,
+                }))
+
+                # 3) 버킷 리셋 (다음 5분)
+                self._avg_start = time.monotonic()
+                self._avg_sum = {k: 0.0 for k in ENV_SPEC}
+                self._avg_cnt = 0
+            # --------------------------------------------------------
+
 
             # 다음 실행 시각을 고정 간격으로 갱신합니다.
             next_tick += period_sec
@@ -196,11 +335,16 @@ class MissionComputer:
         info = {
             "os": platform.system(),
             "os_release": platform.release(),
+            "cpu_type": (platform.processor() or platform.machine() or "unknown"),
             "cpu_cores": os.cpu_count(),
+            "memory_total": _get_total_memory_bytes(), # bytes or None
         }
-        out = {"ts": now_iso(), "node": self.name, "type": "info", "data": info}
+
+        data_info = filter_dict(info, self._settings.get('info', set()))
+        out = {"ts": now_iso(), "node": self.name, "type": "info", "data": data_info}
         print(json_dumps(out))
-        return info
+        
+        return data_info
 
     # 문제 3-2: 시스템 부하(간단/초급자 버전)
     def get_mission_computer_load(self) -> dict:
@@ -218,15 +362,42 @@ class MissionComputer:
                     la1, _la5, _la15 = os.getloadavg()  # macOS/Linux
                     cores = os.cpu_count() or 1
                     cpu_pct = round(min(100.0, (la1 / cores) * 100.0), 1)
+                else:
+                    cpu_pct = 0.0
+                # 메모리 대체: Linux /proc/meminfo, 이외 0.0
+                if sys.platform.startswith("linux"):
+                    try:
+                        meminfo: dict[str, str] = {}
+                        with open("/proc/meminfo", "r", encoding="utf-8") as f:
+                            for line in f:
+                                if ":" in line:
+                                    k, v = line.split(":", 1)
+                                    meminfo[k.strip()] = v.strip()
+                        total_kb = float(meminfo.get("MemTotal", "0  kB").split()[0])
+                        avail_kb = float(meminfo.get("MemAvailable", "0 kB").split()[0])
+                        if total_kb > 0:
+                            used_pct = (1.0 - (avail_kb / total_kb)) * 100.0
+                            mem_pct = round(used_pct, 1)
+                        else:
+                            mem_pct = 0.0
+                    except Exception:
+                        mem_pct = 0.0
+                else:
+                    mem_pct = 0.0
         except Exception:
-            pass
+            cpu_pct = 0.0 if cpu_pct is None else cpu_pct
+            mem_pct = 0.0 if mem_pct is None else mem_pct
 
         load = {"cpu_percent": cpu_pct, "memory_percent": mem_pct}
-        out = {"ts": now_iso(), "node": self.name, "type": "load", "data": load}
+        data_load = filter_dict(load, self._settings.get('load', set()))
+        out = {"ts": now_iso(), "node": self.name, "type": "load", "data": data_load}
+        print(json_dumps(out))
+        return data_load
+
 
         print(json_dumps(out))
 
-        return load
+        return data_load
 
 def run_threads() -> None:
     """
@@ -248,7 +419,6 @@ def run_threads() -> None:
                 if stop.is_set():
                     return
                 
-
     def load_loop():
         period = INFO_PERIOD_SEC
         next_tick = time.monotonic()
@@ -269,8 +439,56 @@ def run_threads() -> None:
     t2 = Thread(target=load_loop, daemon=True)
     t3 = Thread(target=sensor_loop, daemon=True)
     t1.start(); t2.start(); t3.start()
-
     print("Threads running. Stop with 'q' + Enter.")
+
+    try:
+        while True:
+            cmd = sys.stdin.readline().strip().lower()
+            if cmd == "q":
+                break
+    except KeyboardInterrupt:
+        pass
+
+    finally:
+        stop.set()
+        t1.join(timeout=2); t2.join(timeout=2); t3.join(timeout=2)
+        print("System stopped....")
+
+def _proc_target(target_name: str, stop: MpEvent) -> None:
+    mc = MissionComputer("runComputer")
+    if target_name == "info":
+        period = INFO_PERIOD_SEC
+        next_tick = time.monotonic()
+        while not stop.is_set():
+            mc.get_mission_computer_info()
+            next_tick += period
+            remain = next_tick - time.monotonic()
+            if remain > 0:
+                if stop.wait(timeout=remain):
+                    break
+    elif target_name == "load":
+        period = INFO_PERIOD_SEC
+        next_tick = time.monotonic()
+        while not stop.is_set():
+            mc.get_mission_computer_load()
+            next_tick += period
+            remain = next_tick - time.monotonic()
+            if remain > 0:
+                if stop.wait(timeout=remain):
+                    break
+    else:  # sensor
+        mc.get_sensor_data(period_sec=SENSOR_PERIOD_SEC, stop_event=stop)
+
+def run_procs() -> None:
+    stop = MpEvent()
+    procs = [
+        Process(target=_proc_target, args=("info", stop), daemon=True),
+        Process(target=_proc_target, args=("load", stop), daemon=True),
+        Process(target=_proc_target, args=("sensor", stop), daemon=True),
+    ]
+    for p in procs:
+        p.start()
+    print("Processes running. Stop with 'q' + Enter.")
     try:
         while True:
             cmd = sys.stdin.readline().strip().lower()
@@ -280,9 +498,9 @@ def run_threads() -> None:
         pass
     finally:
         stop.set()
-        t1.join(timeout=2); t2.join(timeout=2); t3.join(timeout=2)
-        print("system stopped....")
-
+        for p in procs:
+            p.join(timeout=2)
+        print("System stopped....")
 
 # ───────── 메인 ─────────
 def main(argv: list[str]) -> None:
@@ -314,13 +532,17 @@ def main(argv: list[str]) -> None:
         finally:
             stop.set()
             th.join(timeout=2)
-            print("System stoped....")
+            print("System stopped....")
 
     elif mode == "p3":
         # 문제3 실행: 시스템 정보/부하 1회 출력
         mc = MissionComputer("runComputer")
         mc.get_mission_computer_info()
         mc.get_mission_computer_load()
+
+    elif mode == "p4-procs":
+        # 문제4(프로세스): 3개 동시 실행
+        run_procs()
 
     elif mode == "p4-threads":
         # 문제4(간단): 쓰레드 3개 동시 실행
