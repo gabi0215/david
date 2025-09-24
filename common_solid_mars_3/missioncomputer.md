@@ -25,7 +25,8 @@ class 외부에서도 멤버 변수는 사용이 가능합니다.
 # json
 
 # time
-- time.monotonic
+사용자가 시간의 시간 변경 또는 NTP 동기화가 되면 time.time의 경우는 꼬일 수도 있음.
+- time.monotonic : 시스템의 시각 변경 등에 영향을 받지 않고 시간의 증가만 하므로 타임아웃/주기/실행에 대해 안전함.
 - time.monotonic()
 - time.sleep()
 
@@ -68,3 +69,23 @@ except (KeyboardInterrupt, SystemExit):
     scheduler.shutdown()
 
 ```
+
+# 로직 구조 생각해보기
+문제 1번에서 DummySensor라는 클래스는 정해진 딕셔너리 형태의 내부에 해당 키값의 고유 값들이 각자 정해진 범위들 안에서
+난수를 생성해야합니다. 이를 위해서는 DummySensor class가 자기 자신을 인스턴스화하여 호출할 수 있도록 ENV_SPEC이 반복가능한 자료구조이므로
+
+# Event
+스레드간에 공유하는 플래그
+```
+stop_event.set() : 강제 종료가 아닌 종료 요청
+stop_event.is_set() : 비차단 상태 점검 함수 -> True라면 종료신호,False라면 계속 진행.-> 플래그 ON인지 즉시 확인
+is_set()은 루프안에서 상태만 빠르게 사용할 때 사용합니다.
+stop_event.wait() : 신호가 오기 전까지 대기, 신호가 오면 즉시 사용
+stop_event.clear() : 플래그OFF(다시 진행 가능)
+d
+
+여러 스레드가 하나의 이벤트를 공유한다면 set() 한번으로 전부에게 정지신호를 보낼수있음.
+! 프로세스 간 제어가 필요 시 Threading.Event 가 아닌 multiprocessing.Event를 사용해야합니다.
+```
+
+# psutil

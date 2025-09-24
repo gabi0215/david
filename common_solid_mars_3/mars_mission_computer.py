@@ -1,10 +1,10 @@
 
 # 실행 예)
-#   python mars_mission_computer.py p1
-#   python mars_mission_computer.py p2
-#   python mars_mission_computer.py p3
-#   python mars_mission_computer.py p4-threads
-#   python mars_mission_computer.py p4-procs
+#   python mars_mission_computer.py p1 -> 센서 1회 + 로그파일 생성
+#   python mars_mission_computer.py p2 -> 5초마다 출력, 5분 유지 시 sensor_avg5m 추가
+#   python mars_mission_computer.py p3 -> JSON에서 cpu_type, memory_total 확인
+#   python mars_mission_computer.py p4-threads 세 메서드 동시 동작 
+#   python mars_mission_computer.py p4-procs 세 프로세스 동작
 # 종료: p2/p4-threads 모드에서 터미널에 q + Enter
 # ─────────────────────────────────────────────────────────
 
@@ -19,7 +19,7 @@ from pathlib import Path
 from threading import Event, Thread
 from multiprocessing import Process, Event as MpEvent
 
-# pustil
+# psutil
 try:
     import psutil
 except Exception:
@@ -44,6 +44,8 @@ INFO_PERIOD_SEC   = 20.0
 
 # 보너스 과제
 SETTINGS_PATH = Path('setting.txt')
+
+USAGE = "Usage: python mars_mission_computer.py [p1|p2|p3|p4-threads|p4-procs]"
 
 def load_settings() -> dict[str, set[str]]:
     """
@@ -267,8 +269,7 @@ class MissionComputer:
         # 루프 시작마다 종료 신호를 확인합니다. -> Event.is_set()이 True라면 정상 종료 로그를 한 줄 찍고 종료.
         while True:
             if stop_event and stop_event.is_set():
-                print(json_dumps({"ts": now_iso(), "type": "system", "msg": "System stopped...."}))
-                break
+                break # 메세지는 메인 종료부에서만 1회 출력(중복 방지)
 
             # ENV_SPEC범위에서 난수 생성
             self.sensor.set_env()
@@ -310,12 +311,28 @@ class MissionComputer:
                     "data": data_avg,
                 }))
 
+                # 로그 저장 추가
+                try:
+                    LOG_DIR.mkdir(parents=True, exist_ok=True)
+                    avg_rec = {
+                        "ts": now_iso(),
+                        "node": self.name,
+                        "type": "sensor_avg5m",
+                        "window_sec": int(elapsed),
+                        "samples": self._avg_cnt,
+                        "data": data_avg,
+                    }
+                    with (LOG_DIR / f"env_avg_{datetime.now():%Y%m%d}.log").open("a", encoding="utf-8") as f:
+                        json.dump(avg_rec, f, ensure_ascii=False)
+                        f.write(" ")
+                except Exception as e:
+                    print(json_dumps({"ts": now_iso(), "type": "warn", "msg": f"avg log failed: {e}"}))
+
                 # 3) 버킷 리셋 (다음 5분)
                 self._avg_start = time.monotonic()
                 self._avg_sum = {k: 0.0 for k in ENV_SPEC}
                 self._avg_cnt = 0
             # --------------------------------------------------------
-
 
             # 다음 실행 시각을 고정 간격으로 갱신합니다.
             next_tick += period_sec
@@ -394,23 +411,18 @@ class MissionComputer:
         print(json_dumps(out))
         return data_load
 
-
-        print(json_dumps(out))
-
-        return data_load
-
 def run_threads() -> None:
     """
     문제4: 쓰레드 3개(info/load 20초, sensor 5초)
     """
-    mc = MissionComputer("runComputer")
+    RunComputer = MissionComputer("runComputer")
     stop = Event()
 
     def info_loop():
         period = INFO_PERIOD_SEC
         next_tick = time.monotonic()
         while not stop.is_set():
-            mc.get_mission_computer_info()
+            RunComputer.get_mission_computer_info()
             next_tick += period
             remaining = next_tick - time.monotonic()
             if remaining > 0:
@@ -423,7 +435,7 @@ def run_threads() -> None:
         period = INFO_PERIOD_SEC
         next_tick = time.monotonic()
         while not stop.is_set():
-            mc.get_mission_computer_load()
+            RunComputer.get_mission_computer_load()
             next_tick += period
             remaining = next_tick - time.monotonic()
             if remaining > 0:
@@ -433,7 +445,7 @@ def run_threads() -> None:
                     return
 
     def sensor_loop():
-        mc.get_sensor_data(period_sec=SENSOR_PERIOD_SEC, stop_event=stop)
+        RunComputer.get_sensor_data(period_sec=SENSOR_PERIOD_SEC, stop_event=stop)
 
     t1 = Thread(target=info_loop, daemon=True)
     t2 = Thread(target=load_loop, daemon=True)
@@ -454,38 +466,47 @@ def run_threads() -> None:
         t1.join(timeout=2); t2.join(timeout=2); t3.join(timeout=2)
         print("System stopped....")
 
-def _proc_target(target_name: str, stop: MpEvent) -> None:
-    mc = MissionComputer("runComputer")
-    if target_name == "info":
-        period = INFO_PERIOD_SEC
-        next_tick = time.monotonic()
-        while not stop.is_set():
-            mc.get_mission_computer_info()
-            next_tick += period
-            remain = next_tick - time.monotonic()
-            if remain > 0:
-                if stop.wait(timeout=remain):
-                    break
-    elif target_name == "load":
-        period = INFO_PERIOD_SEC
-        next_tick = time.monotonic()
-        while not stop.is_set():
-            mc.get_mission_computer_load()
-            next_tick += period
-            remain = next_tick - time.monotonic()
-            if remain > 0:
-                if stop.wait(timeout=remain):
-                    break
-    else:  # sensor
-        mc.get_sensor_data(period_sec=SENSOR_PERIOD_SEC, stop_event=stop)
+# def _proc_target(target_name: str, stop: MpEvent) -> None:
+#     mc = MissionComputer("runComputer")
+#     if target_name == "info":
+#         period = INFO_PERIOD_SEC
+#         next_tick = time.monotonic()
+#         while not stop.is_set():
+#             mc.get_mission_computer_info()
+#             next_tick += period
+#             remain = next_tick - time.monotonic()
+#             if remain > 0:
+#                 if stop.wait(timeout=remain):
+#                     break
+#     elif target_name == "load":
+#         period = INFO_PERIOD_SEC
+#         next_tick = time.monotonic()
+#         while not stop.is_set():
+#             mc.get_mission_computer_load()
+#             next_tick += period
+#             remain = next_tick - time.monotonic()
+#             if remain > 0:
+#                 if stop.wait(timeout=remain):
+#                     break
+#     else:  # sensor
+#         mc.get_sensor_data(period_sec=SENSOR_PERIOD_SEC, stop_event=stop)
 
 def run_procs() -> None:
     stop = MpEvent()
+    # 변수명 지정
+    RunComputer1 = MissionComputer("runComputer1")
+    RunComputer2 = MissionComputer("runComputer2")
+    RunComputer3 = MissionComputer("runComputer3")
+
     procs = [
-        Process(target=_proc_target, args=("info", stop), daemon=True),
-        Process(target=_proc_target, args=("load", stop), daemon=True),
-        Process(target=_proc_target, args=("sensor", stop), daemon=True),
+        Process(target=RunComputer1.get_mission_computer_info, daemon=True),
+        Process(target=RunComputer2.get_mission_computer_load, daemon=True),
+        Process(target=RunComputer3.get_sensor_data, kwargs={
+            "period_sec": SENSOR_PERIOD_SEC, 
+            "stop_event": stop}, 
+            daemon=True),
     ]
+
     for p in procs:
         p.start()
     print("Processes running. Stop with 'q' + Enter.")
@@ -518,11 +539,15 @@ def main(argv: list[str]) -> None:
 
     elif mode == "p2":
         # 문제2 실행: 5초마다 JSON 출력, q로 종료
-        mc = MissionComputer("runComputer")
+        RunComputer = MissionComputer("runComputer")
         stop = Event()
-        th = Thread(target=mc.get_sensor_data, kwargs={"period_sec": SENSOR_PERIOD_SEC, "stop_event": stop}, daemon=True)
+        th = Thread(target=RunComputer.get_sensor_data, kwargs={
+            "period_sec": SENSOR_PERIOD_SEC, 
+            "stop_event": stop}, 
+            daemon=True)
         th.start()
         print("Sensor loop running. Stop with 'q' + Enter.")
+        
         try:
             while True:
                 if sys.stdin.readline().strip().lower() == "q":
@@ -536,20 +561,20 @@ def main(argv: list[str]) -> None:
 
     elif mode == "p3":
         # 문제3 실행: 시스템 정보/부하 1회 출력
-        mc = MissionComputer("runComputer")
-        mc.get_mission_computer_info()
-        mc.get_mission_computer_load()
-
-    elif mode == "p4-procs":
-        # 문제4(프로세스): 3개 동시 실행
-        run_procs()
+        RunComputer = MissionComputer("runComputer")
+        RunComputer.get_mission_computer_info()
+        RunComputer.get_mission_computer_load()
 
     elif mode == "p4-threads":
         # 문제4(간단): 쓰레드 3개 동시 실행
         run_threads()
 
+    elif mode == "p4-procs":
+        # 문제4(프로세스): 3개 동시 실행
+        run_procs()
+
     else:
-        print("Usage: python mars_mission_computer_beginner.py [p1|p2|p3|p4-threads]")
+        print(USAGE)
 
 if __name__ == "__main__":
     main(sys.argv)
