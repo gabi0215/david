@@ -38,6 +38,7 @@ def record_audio():
     return filepath
 
 def speech_to_text(filepath):
+    print(whisper.available_models())
     model = whisper.load_model('base')
     result = model.transcribe(filepath, language='ko')
     text = result['text']
