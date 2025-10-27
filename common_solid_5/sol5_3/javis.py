@@ -1,6 +1,6 @@
 import os
-import sounddevice as sd
-import soundfile as sf
+import sounddevice as sd# 마이크로부터 소리받기, 스피커로 소리 내보내기
+import soundfile as sf # 녹음된 데이터를 파일로 저장하거나 읽기
 from datetime import datetime
 import csv
 import whisper
@@ -20,6 +20,7 @@ def record_audio():
     sd.wait()  # 녹음 끝날 때까지 대기
     filename = datetime.now().strftime('%Y%m%d-%H%M%S') + '.wav'
     filepath = os.path.join(RECORD_DIR, filename)
+    # soundfile 라이브러리로 파일을 저장합니다.
     sf.write(filepath, recording, SAMPLE_RATE)
     print(f'녹음이 완료되었습니다: {filepath}')
     return filepath
