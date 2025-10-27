@@ -7,21 +7,33 @@ import whisper
 
 # 녹음 설정
 RECORD_SECONDS = 10  # 녹음 시간 (초)
-SAMPLE_RATE = 44100  # 샘플링 레이트(1초에 몇번 잘랐는가?) sounddevice 또는 pyaudio 라이브러리의 경우 이 값을 알아야 녹음 세팅을 정확히 가능해짐.
-CHANNELS = 2  # 채널 수
+# SAMPLE_RATE = 44100  # 샘플링 레이트(1초에 몇번 잘랐는가?) sounddevice 또는 pyaudio 라이브러리의 경우 이 값을 알아야 녹음 세팅을 정확히 가능해짐.
+SAMPLE_RATE = 16000 # 변경된 라이브러리 whisper 의 경우 16kz 안정적임.
+CHANNELS = 1  # 채널 수 mono
+DTYPE = 'float32' # 오디오 신호 표준
 RECORD_DIR = 'records'
 
 # records 폴더 없으면 생성
 os.makedirs(RECORD_DIR, exist_ok=True)
 
 def record_audio():
+    """마이크에서 오디오를 녹음해 wav로 저장하고 파일 경로를 반환
+
+    Returns:
+        _type_: _description_
+    """
     print('녹음을 시작합니다...')
-    recording = sd.rec(int(RECORD_SECONDS * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=CHANNELS)
+    recording = sd.rec(
+        int(RECORD_SECONDS * SAMPLE_RATE),
+        samplerate=SAMPLE_RATE,
+        channels=CHANNELS,
+        dtype=DTYPE
+        )
     sd.wait()  # 녹음 끝날 때까지 대기
     filename = datetime.now().strftime('%Y%m%d-%H%M%S') + '.wav'
     filepath = os.path.join(RECORD_DIR, filename)
     # soundfile 라이브러리로 파일을 저장합니다.
-    sf.write(filepath, recording, SAMPLE_RATE)
+    sf.write(filepath, recording, SAMPLE_RATE) # float32 WAV저장 # 헤더에 샘플레이트를 지정안해주면 오류 발생.
     print(f'녹음이 완료되었습니다: {filepath}')
     return filepath
 
@@ -35,7 +47,7 @@ def speech_to_text(filepath):
     csv_filename = os.path.splitext(os.path.basename(filepath))[0] + '.csv'
     csv_path = os.path.join(RECORD_DIR, csv_filename)
     # os.path.basename(filepath) -> 파일 경로에서 파일의 이름만 추출
-    # os.path.splittext(filename) -> 추출 된 파일 이름에서 확장자를 분리(리턴 값은 이름, 확장자) 형태의 튜플
+    # os.path.splitext(filename) -> 추출 된 파일 이름에서 확장자를 분리(리턴 값은 이름, 확장자) 형태의 튜플
     with open(csv_path, mode='w', encoding='utf-8', newline='') as f:
         # 해당 경로의 인코딩형태 쓰기모드 등을 지정
         writer = csv.writer(f)
